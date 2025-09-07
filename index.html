@@ -5,13 +5,28 @@
   <title>Satellite Constellations Overview</title>
   <style>
     body { margin: 0; background: black; }
-    #constellation-select {
+    #constellation-table {
       position: absolute;
       top: 10px;
       left: 10px;
       z-index: 10;
       font-size: 16px;
-      padding: 4px;
+      font-family: sans-serif;
+      border-collapse: collapse;
+      background: rgba(30, 30, 30, 0.8);
+      color: white;
+      cursor: pointer;
+    }
+    #constellation-table td {
+      padding: 6px 12px;
+      border: 1px solid rgba(200, 200, 200, 0.2);
+      transition: background 0.2s;
+    }
+    #constellation-table tr:hover td {
+      background: rgba(173, 216, 230, 0.3); /* light blue hover */
+    }
+    #constellation-table tr.active td {
+      background: rgba(173, 216, 230, 0.5); /* highlighted light blue */
     }
     #time-log {
       position: absolute;
@@ -28,11 +43,11 @@
   <script src="https://cdn.jsdelivr.net/npm/globe.gl"></script>
 </head>
 <body>
-  <select id="constellation-select">
-    <option value="starlink">Starlink</option>
-    <option value="kuiper">Kuiper</option>
-    <option value="oneweb">OneWeb</option>
-  </select>
+  <table id="constellation-table">
+    <tr data-value="starlink"><td>Starlink</td></tr>
+    <tr data-value="kuiper"><td>Kuiper</td></tr>
+    <tr data-value="oneweb"><td>OneWeb</td></tr>
+  </table>
   <div id="chart"></div>
   <div id="time-log"></div>
   <script type="module">
@@ -47,7 +62,8 @@
     const EARTH_RADIUS_KM = 6371;
     const TIME_STEP = 1 * 1000;
     const timeLogger = document.getElementById('time-log');
-    const selectBox = document.getElementById('constellation-select');
+    const table = document.getElementById('constellation-table');
+
     const world = Globe()(document.getElementById('chart'))
       .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg')
       .particleLat('lat')
@@ -97,11 +113,23 @@
       updateSatPositions();
     })();
 
-    // Fetch initial (default) TLE
-    fetchAndDisplayTLE(TLE_URLS[selectBox.value]);
-    selectBox.addEventListener('change', () => {
-      fetchAndDisplayTLE(TLE_URLS[selectBox.value]);
+    // Click handling for table rows
+    table.querySelectorAll("tr").forEach(row => {
+      row.addEventListener("click", () => {
+        // Remove active class from all
+        table.querySelectorAll("tr").forEach(r => r.classList.remove("active"));
+        // Set active class to clicked
+        row.classList.add("active");
+        // Load corresponding TLE
+        const constellation = row.getAttribute("data-value");
+        fetchAndDisplayTLE(TLE_URLS[constellation]);
+      });
     });
+
+    // Fetch initial default TLE (Starlink)
+    const defaultRow = table.querySelector('[data-value="starlink"]');
+    defaultRow.classList.add("active");
+    fetchAndDisplayTLE(TLE_URLS["starlink"]);
   </script>
 </body>
 </html>
