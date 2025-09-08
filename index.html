@@ -70,18 +70,15 @@
     let satData = [];
     let time = new Date();
 
-const world = Globe()(document.getElementById('chart'))
-  .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg')
-  .backgroundColor('#000')  
-  .showAtmosphere(true)
-  .atmosphereColor('rgba(70, 120, 180, 0.3)')
-  .particleLat('lat')
-  .particleLng('lng')
-  .particleAltitude('alt')
-  .particleSize(0.6)  // 🔹 increase dot size (default ~0.2)
-  .particlesColor(() => `rgba(173, 255, 47, ${fadeAlpha})`); // 🔹 brighter yellow-green
-
-
+    const world = Globe()(document.getElementById('chart'))
+      .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg')
+      .backgroundColor('#000')  
+      .showAtmosphere(true)
+      .atmosphereColor('rgba(70, 120, 180, 0.3)')
+      .particleLat('lat')
+      .particleLng('lng')
+      .particleAltitude('alt')
+      .particlesColor(() => `rgba(255, 255, 200, ${fadeAlpha})`);
 
     setTimeout(() => world.pointOfView({ altitude: 3.5 }));
 
@@ -138,7 +135,7 @@ const world = Globe()(document.getElementById('chart'))
 
       world
         .particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))])
-        .particlesColor(() => `rgba(152, 251, 152, ${fadeAlpha})`);
+        .particlesColor(() => `rgba(255, 255, 200, ${fadeAlpha})`);
     }
 
     (function frameTicker() {
@@ -163,6 +160,32 @@ const world = Globe()(document.getElementById('chart'))
     defaultRow.classList.add("active");
     nextConstellation = "starlink";
     fetchAndDisplayTLE(TLE_URLS["starlink"]);
+
+    // === Shader patch for glowing, bigger satellites ===
+    setTimeout(() => {
+      world.scene().traverse(obj => {
+        if (obj.type === "Points" && obj.material && obj.material.onBeforeCompile) {
+          obj.material.onBeforeCompile = shader => {
+            // Enlarge particles
+            shader.vertexShader = shader.vertexShader.replace(
+              'gl_PointSize = size;',
+              'gl_PointSize = size * 4.0;' // 4x bigger
+            );
+
+            // Add glow effect
+            shader.fragmentShader = shader.fragmentShader.replace(
+              'gl_FragColor = vec4( color, opacity );',
+              `
+              float d = distance(gl_PointCoord, vec2(0.5, 0.5));
+              float alpha = smoothstep(0.5, 0.0, d);
+              gl_FragColor = vec4(color, opacity * alpha);
+              `
+            );
+          };
+          obj.material.needsUpdate = true;
+        }
+      });
+    }, 1000);
   </script>
 </body>
 </html>
