@@ -92,6 +92,9 @@
             name: name.trim().replace(/^0 /, '')
           })).filter(d => !!satellite.propagate(d.satrec, new Date())?.position);
 
+          // Build orbital rings once
+          buildOrbitalRings(satData);
+
           fadeState = "fade-in";
           fadeAlpha = 0;
         });
@@ -131,8 +134,6 @@
       world
         .particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))])
         .particlesColor(() => `rgba(255,255,200,${fadeAlpha})`);
-
-      computePlaneConnectionsAndDraw();
     }
 
     (function frameTicker() {
@@ -178,51 +179,58 @@
       });
     }, 1000);
 
-    // --- Orbital plane arcs ---
-    const PLANE_TOL_DEG = 0.5;
-    const MAX_EDGES_PER_PLANE = 200;
-    function norm360(a) { let r = a % 360; if(r<0) r+=360; return r; }
-
-    function computePlaneConnectionsAndDraw() {
+    // --- Build orbital rings (static) ---
+    function buildOrbitalRings(satellites) {
+      const PLANE_TOL_DEG = 0.5;
       const planes = new Map();
-      satData.forEach(sat => {
-        if (!sat.satrec) return;
+
+      satellites.forEach(sat => {
         const inclDeg = satellite.radiansToDegrees(sat.satrec.inclo || 0);
-        const raanDegRaw = satellite.radiansToDegrees(sat.satrec.nodeo || 0);
-        const raanDeg = norm360(raanDegRaw);
+        const raanDeg = satellite.radiansToDegrees(sat.satrec.nodeo || 0);
         const inclBin = Math.round(inclDeg / PLANE_TOL_DEG) * PLANE_TOL_DEG;
         const raanBin = Math.round(raanDeg / PLANE_TOL_DEG) * PLANE_TOL_DEG;
         const key = `${inclBin.toFixed(3)}_${raanBin.toFixed(3)}`;
-        if (!planes.has(key)) planes.set(key, []);
-        planes.get(key).push(Object.assign({}, sat, { inclDeg, raanDeg }));
+        if (!planes.has(key)) planes.set(key, { incl: sat.satrec.inclo, raan: sat.satrec.nodeo });
       });
 
       const arcs = [];
-      planes.forEach(sats => {
-        if(sats.length < 2) return;
-        const satsValid = sats.filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
-        if(satsValid.length<2) return;
-        const meanLon = satsValid.reduce((a,b)=>a+b.lng,0)/satsValid.length;
-        function lonShifted(lon){ let shifted=lon; while(shifted-meanLon>180) shifted-=360; while(shifted-meanLon<-180) shifted+=360; return shifted; }
-        satsValid.sort((a,b)=>lonShifted(a.lng)-lonShifted(b.lng));
-        for(let i=0;i<satsValid.length;i++){
-          const a = satsValid[i], b = satsValid[(i+1)%satsValid.length];
-          if(a.lat===b.lat && a.lng===b.lng) continue;
-          arcs.push({
-            startLat:a.lat, startLng:a.lng,
-            endLat:b.lat, endLng:b.lng,
-            arcAltitude:0.01, color:'rgba(100,180,255,0.9)', strokeWidth:1
-          });
-          if(arcs.length>=MAX_EDGES_PER_PLANE) break;
+      planes.forEach(plane => {
+        const numSegs = 72; // smoothness of the ring
+        let prev = null;
+        for (let i = 0; i <= numSegs; i++) {
+          const M = (2 * Math.PI * i) / numSegs;
+          const satrec = {
+            ...satellites[0].satrec,
+            meanan: M,
+            inclo: plane.incl,
+            nodeo: plane.raan
+          };
+          const t = new Date();
+          const eci = satellite.propagate(satrec, t);
+          if (eci?.position) {
+            const gmst = satellite.gstime(t);
+            const gdPos = satellite.eciToGeodetic(eci.position, gmst);
+            const lat = satellite.radiansToDegrees(gdPos.latitude);
+            const lng = satellite.radiansToDegrees(gdPos.longitude);
+            if (prev) {
+              arcs.push({
+                startLat: prev.lat, startLng: prev.lng,
+                endLat: lat, endLng: lng,
+                arcAltitude: 0.01,
+                color: 'rgba(100,180,255,0.5)',
+                strokeWidth: 0.5
+              });
+            }
+            prev = { lat, lng };
+          }
         }
       });
 
       world
         .arcsData(arcs)
-        .arcColor(d=>d.color)
-        .arcStroke(d=>d.strokeWidth)
-        .arcAltitude(d=>d.arcAltitude)
-        .arcDashLength(0).arcDashGap(0).arcDashInitialGap(0);
+        .arcColor(d => d.color)
+        .arcStroke(d => d.strokeWidth)
+        .arcAltitude(d => d.arcAltitude);
     }
   </script>
 </body>
