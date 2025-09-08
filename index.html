@@ -23,10 +23,10 @@
       transition: background 0.2s;
     }
     #constellation-table tr:hover td {
-      background: rgba(173, 216, 230, 0.3); /* light blue hover */
+      background: rgba(173, 216, 230, 0.3);
     }
     #constellation-table tr.active td {
-      background: rgba(173, 216, 230, 0.5); /* highlighted light blue */
+      background: rgba(173, 216, 230, 0.5);
     }
     #time-log {
       position: absolute;
@@ -64,9 +64,9 @@
     const timeLogger = document.getElementById('time-log');
     const table = document.getElementById('constellation-table');
 
-    let fadeAlpha = 1;          // opacity factor for satellites
-    let fadeState = "idle";     // "idle" | "fade-out" | "fade-in"
-    let nextConstellation = ""; // store constellation during transition
+    let fadeAlpha = 1;          
+    let fadeState = "idle";     
+    let nextConstellation = ""; 
     let satData = [];
     let time = new Date();
 
@@ -92,7 +92,6 @@
             name: name.trim().replace(/^0 /, '')
           })).filter(d => !!satellite.propagate(d.satrec, new Date())?.position);
 
-          // start fade-in
           fadeState = "fade-in";
           fadeAlpha = 0;
         });
@@ -102,6 +101,7 @@
       time = new Date(+time + TIME_STEP);
       timeLogger.innerText = time.toString();
       const gmst = satellite.gstime(time);
+
       satData.forEach(d => {
         const eci = satellite.propagate(d.satrec, time);
         if (eci?.position) {
@@ -116,26 +116,23 @@
         }
       });
 
-      // handle fading
       if (fadeState === "fade-out") {
         fadeAlpha -= 0.03;
         if (fadeAlpha <= 0) {
           fadeAlpha = 0;
           fadeState = "loading";
-          // once faded out, load new constellation
           fetchAndDisplayTLE(TLE_URLS[nextConstellation]);
         }
       } else if (fadeState === "fade-in") {
         fadeAlpha += 0.03;
-        if (fadeAlpha >= 1) {
-          fadeAlpha = 1;
-          fadeState = "idle";
-        }
+        if (fadeAlpha >= 1) fadeAlpha = 1, fadeState = "idle";
       }
 
       world
         .particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))])
-        .particlesColor(() => `rgba(255, 255, 200, ${fadeAlpha})`);
+        .particlesColor(() => `rgba(255,255,200,${fadeAlpha})`);
+
+      computePlaneConnectionsAndDraw();
     }
 
     (function frameTicker() {
@@ -143,36 +140,30 @@
       updateSatPositions();
     })();
 
-    // Click handling for table rows
     table.querySelectorAll("tr").forEach(row => {
       row.addEventListener("click", () => {
         table.querySelectorAll("tr").forEach(r => r.classList.remove("active"));
         row.classList.add("active");
-
         const constellation = row.getAttribute("data-value");
         nextConstellation = constellation;
-        fadeState = "fade-out"; // begin fade-out
+        fadeState = "fade-out";
       });
     });
 
-    // Fetch initial default TLE (Starlink)
     const defaultRow = table.querySelector('[data-value="starlink"]');
     defaultRow.classList.add("active");
     nextConstellation = "starlink";
     fetchAndDisplayTLE(TLE_URLS["starlink"]);
 
-    // === Shader patch for glowing, bigger satellites ===
+    // --- Shader patch for glowing bigger satellites ---
     setTimeout(() => {
       world.scene().traverse(obj => {
         if (obj.type === "Points" && obj.material && obj.material.onBeforeCompile) {
           obj.material.onBeforeCompile = shader => {
-            // Enlarge particles
             shader.vertexShader = shader.vertexShader.replace(
               'gl_PointSize = size;',
-              'gl_PointSize = size * 4.0;' // 4x bigger
+              'gl_PointSize = size * 4.0;'
             );
-
-            // Add glow effect
             shader.fragmentShader = shader.fragmentShader.replace(
               'gl_FragColor = vec4( color, opacity );',
               `
@@ -186,6 +177,53 @@
         }
       });
     }, 1000);
+
+    // --- Orbital plane arcs ---
+    const PLANE_TOL_DEG = 0.5;
+    const MAX_EDGES_PER_PLANE = 200;
+    function norm360(a) { let r = a % 360; if(r<0) r+=360; return r; }
+
+    function computePlaneConnectionsAndDraw() {
+      const planes = new Map();
+      satData.forEach(sat => {
+        if (!sat.satrec) return;
+        const inclDeg = satellite.radiansToDegrees(sat.satrec.inclo || 0);
+        const raanDegRaw = satellite.radiansToDegrees(sat.satrec.nodeo || 0);
+        const raanDeg = norm360(raanDegRaw);
+        const inclBin = Math.round(inclDeg / PLANE_TOL_DEG) * PLANE_TOL_DEG;
+        const raanBin = Math.round(raanDeg / PLANE_TOL_DEG) * PLANE_TOL_DEG;
+        const key = `${inclBin.toFixed(3)}_${raanBin.toFixed(3)}`;
+        if (!planes.has(key)) planes.set(key, []);
+        planes.get(key).push(Object.assign({}, sat, { inclDeg, raanDeg }));
+      });
+
+      const arcs = [];
+      planes.forEach(sats => {
+        if(sats.length < 2) return;
+        const satsValid = sats.filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+        if(satsValid.length<2) return;
+        const meanLon = satsValid.reduce((a,b)=>a+b.lng,0)/satsValid.length;
+        function lonShifted(lon){ let shifted=lon; while(shifted-meanLon>180) shifted-=360; while(shifted-meanLon<-180) shifted+=360; return shifted; }
+        satsValid.sort((a,b)=>lonShifted(a.lng)-lonShifted(b.lng));
+        for(let i=0;i<satsValid.length;i++){
+          const a = satsValid[i], b = satsValid[(i+1)%satsValid.length];
+          if(a.lat===b.lat && a.lng===b.lng) continue;
+          arcs.push({
+            startLat:a.lat, startLng:a.lng,
+            endLat:b.lat, endLng:b.lng,
+            arcAltitude:0.01, color:'rgba(100,180,255,0.9)', strokeWidth:1
+          });
+          if(arcs.length>=MAX_EDGES_PER_PLANE) break;
+        }
+      });
+
+      world
+        .arcsData(arcs)
+        .arcColor(d=>d.color)
+        .arcStroke(d=>d.strokeWidth)
+        .arcAltitude(d=>d.arcAltitude)
+        .arcDashLength(0).arcDashGap(0).arcDashInitialGap(0);
+    }
   </script>
 </body>
 </html>
