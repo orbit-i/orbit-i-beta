@@ -64,17 +64,20 @@
     const timeLogger = document.getElementById('time-log');
     const table = document.getElementById('constellation-table');
 
+    let fadeAlpha = 1;          // opacity factor for satellites
+    let fadeState = "idle";     // "idle" | "fade-out" | "fade-in"
+    let nextConstellation = ""; // store constellation during transition
+    let satData = [];
+    let time = new Date();
+
     const world = Globe()(document.getElementById('chart'))
       .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg')
       .particleLat('lat')
       .particleLng('lng')
       .particleAltitude('alt')
-      .particlesColor(() => 'palegreen');
+      .particlesColor(() => `rgba(152, 251, 152, ${fadeAlpha})`); // palegreen with fade
 
     setTimeout(() => world.pointOfView({ altitude: 3.5 }));
-
-    let satData = [];
-    let time = new Date();
 
     function fetchAndDisplayTLE(url) {
       fetch(url)
@@ -85,6 +88,10 @@
             satrec: satellite.twoline2satrec(...tle),
             name: name.trim().replace(/^0 /, '')
           })).filter(d => !!satellite.propagate(d.satrec, new Date())?.position);
+
+          // start fade-in
+          fadeState = "fade-in";
+          fadeAlpha = 0;
         });
     }
 
@@ -105,7 +112,27 @@
           d.alt = NaN;
         }
       });
-      world.particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))]);
+
+      // handle fading
+      if (fadeState === "fade-out") {
+        fadeAlpha -= 0.03;
+        if (fadeAlpha <= 0) {
+          fadeAlpha = 0;
+          fadeState = "loading";
+          // once faded out, load new constellation
+          fetchAndDisplayTLE(TLE_URLS[nextConstellation]);
+        }
+      } else if (fadeState === "fade-in") {
+        fadeAlpha += 0.03;
+        if (fadeAlpha >= 1) {
+          fadeAlpha = 1;
+          fadeState = "idle";
+        }
+      }
+
+      world
+        .particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))])
+        .particlesColor(() => `rgba(152, 251, 152, ${fadeAlpha})`);
     }
 
     (function frameTicker() {
@@ -116,19 +143,19 @@
     // Click handling for table rows
     table.querySelectorAll("tr").forEach(row => {
       row.addEventListener("click", () => {
-        // Remove active class from all
         table.querySelectorAll("tr").forEach(r => r.classList.remove("active"));
-        // Set active class to clicked
         row.classList.add("active");
-        // Load corresponding TLE
+
         const constellation = row.getAttribute("data-value");
-        fetchAndDisplayTLE(TLE_URLS[constellation]);
+        nextConstellation = constellation;
+        fadeState = "fade-out"; // begin fade-out
       });
     });
 
     // Fetch initial default TLE (Starlink)
     const defaultRow = table.querySelector('[data-value="starlink"]');
     defaultRow.classList.add("active");
+    nextConstellation = "starlink";
     fetchAndDisplayTLE(TLE_URLS["starlink"]);
   </script>
 </body>
