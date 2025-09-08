@@ -29,13 +29,6 @@
       padding: 6px 8px;
       vertical-align: middle;
     }
-    .legend-color {
-      width: 16px;
-      height: 16px;
-      display: inline-block;
-      border-radius: 50%;
-      margin-right: 8px;
-    }
     #time-log {
       position: absolute;
       font-size: 12px;
@@ -55,16 +48,32 @@
     <h3>Popular Constellation</h3>
     <table>
       <tr>
-        <td><input type="checkbox" id="chk-oneweb" data-value="oneweb" checked></td>
-        <td><span class="legend-color" style="background:#00ffff;"></span>OneWeb</td>
+        <td><input type="checkbox" data-value="oneweb" checked></td>
+        <td>OneWeb</td>
       </tr>
       <tr>
-        <td><input type="checkbox" id="chk-kuiper" data-value="kuiper"></td>
-        <td><span class="legend-color" style="background:#ff7f50;"></span>Kuiper</td>
+        <td><input type="checkbox" data-value="kuiper"></td>
+        <td>Kuiper</td>
       </tr>
       <tr>
-        <td><input type="checkbox" id="chk-starlink" data-value="starlink"></td>
-        <td><span class="legend-color" style="background:#adff2f;"></span>Starlink</td>
+        <td><input type="checkbox" data-value="starlink"></td>
+        <td>Starlink</td>
+      </tr>
+      <tr>
+        <td><input type="checkbox" data-value="iridium-NEXT"></td>
+        <td>Iridium-NEXT</td>
+      </tr>
+      <tr>
+        <td><input type="checkbox" data-value="hulianwang"></td>
+        <td>Hulianwang</td>
+      </tr>
+      <tr>
+        <td><input type="checkbox" data-value="qianfan"></td>
+        <td>Qianfan</td>
+      </tr>
+      <tr>
+        <td><input type="checkbox" data-value="planet"></td>
+        <td>Planet</td>
       </tr>
     </table>
   </div>
@@ -77,12 +86,10 @@
       starlink: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle',
       kuiper: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=kuiper&FORMAT=tle',
       oneweb: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=oneweb&FORMAT=tle',
-    };
-
-    const CONSTELLATION_COLORS = {
-      starlink: 'rgba(173,255,47,1)', // green-yellow
-      kuiper: 'rgba(255,127,80,1)',   // coral
-      oneweb: 'rgba(0,255,255,1)'     // cyan
+      "iridium-NEXT": 'https://celestrak.org/NORAD/elements/gp.php?GROUP=iridium-NEXT&FORMAT=tle',
+      hulianwang: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=hulianwang&FORMAT=tle',
+      qianfan: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=qianfan&FORMAT=tle',
+      planet: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=planet&FORMAT=tle'
     };
 
     const EARTH_RADIUS_KM = 6371;
@@ -100,7 +107,7 @@
       .particleLat('lat')
       .particleLng('lng')
       .particleAltitude('alt')
-      .particlesColor(d => d.color || 'rgba(255,255,200,1)');
+      .particlesColor(() => 'rgba(255, 255, 200, 1)');
 
     setTimeout(() => world.pointOfView({ altitude: 3.5 }));
 
@@ -113,9 +120,7 @@
             const satrec = satellite.twoline2satrec(...tle);
             return {
               satrec,
-              name: name.trim().replace(/^0 /, ''),
-              constellation,
-              color: CONSTELLATION_COLORS[constellation]
+              name: name.trim().replace(/^0 /, '')
             };
           }).filter(d => !!satellite.propagate(d.satrec, new Date())?.position);
           satDataMap[constellation] = sats;
@@ -147,7 +152,7 @@
       const activeData = activeConstellations.flatMap(c => satDataMap[c] || [])
         .filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt));
 
-      world.particlesData([activeData]); // still using particle layer
+      world.particlesData([activeData]);
     }
 
     (function frameTicker() {
