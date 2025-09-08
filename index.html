@@ -86,16 +86,21 @@
       .particleLat('lat')
       .particleLng('lng')
       .particleAltitude('alt')
-      .particleRadius(0.7)       // global particle size
       .particlesColor(() => 'rgba(255,255,200,1)');
 
     setTimeout(() => world.pointOfView({ altitude: 3.5 }));
 
-    // Patch shader for glow
+    // === Shader patch for bigger, glowing satellites ===
     setTimeout(() => {
       world.scene().traverse(obj => {
         if (obj.type === "Points" && obj.material?.onBeforeCompile) {
           obj.material.onBeforeCompile = shader => {
+            // Enlarge points
+            shader.vertexShader = shader.vertexShader.replace(
+              'gl_PointSize = size;',
+              'gl_PointSize = size * 4.0;'
+            );
+            // Glow effect
             shader.fragmentShader = shader.fragmentShader.replace(
               'gl_FragColor = vec4( color, opacity );',
               `
