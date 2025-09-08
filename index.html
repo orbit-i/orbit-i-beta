@@ -71,14 +71,16 @@
     let time = new Date();
 
 const world = Globe()(document.getElementById('chart'))
-  .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg') // darker earth
-  .backgroundColor('#000')  // solid black background
+  .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg')
+  .backgroundColor('#000')  
   .showAtmosphere(true)
-  .atmosphereColor('rgba(70, 120, 180, 0.3)') // dimmer bluish glow
+  .atmosphereColor('rgba(70, 120, 180, 0.3)')
   .particleLat('lat')
   .particleLng('lng')
   .particleAltitude('alt')
-  .particlesColor(() => `rgba(152, 251, 152, ${fadeAlpha})`);
+  .particleSize(0.6)  // 🔹 increase dot size (default ~0.2)
+  .particlesColor(() => `rgba(173, 255, 47, ${fadeAlpha})`); // 🔹 brighter yellow-green
+
 
 
     setTimeout(() => world.pointOfView({ altitude: 3.5 }));
