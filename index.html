@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Satellite Constellations with Orbital Rings</title>
+  <title>Satellite Constellations Overview</title>
   <style>
     body { margin: 0; background: black; }
     #constellation-table {
@@ -11,27 +11,22 @@
       left: 10px;
       z-index: 10;
       font-size: 16px;
+      font-family: sans-serif;
       border-collapse: collapse;
+      background: rgba(30, 30, 30, 0.8);
       color: white;
-      opacity: 0;
-      transform: translateY(-10px);
-      transition: opacity 0.5s ease, transform 0.5s ease;
-    }
-    #constellation-table.show {
-      opacity: 1;
-      transform: translateY(0);
+      cursor: pointer;
     }
     #constellation-table td {
       padding: 6px 12px;
-      cursor: pointer;
-      background-color: rgba(50, 50, 50, 0.7);
-      border: 1px solid #555;
+      border: 1px solid rgba(200, 200, 200, 0.2);
+      transition: background 0.2s;
     }
-    #constellation-table td:hover {
-      background-color: rgba(100, 100, 255, 0.6);
+    #constellation-table tr:hover td {
+      background: rgba(173, 216, 230, 0.3); /* light blue hover */
     }
-    #constellation-table td.active {
-      background-color: rgba(100, 149, 237, 0.5);
+    #constellation-table tr.active td {
+      background: rgba(173, 216, 230, 0.5); /* highlighted light blue */
     }
     #time-log {
       position: absolute;
@@ -49,9 +44,9 @@
 </head>
 <body>
   <table id="constellation-table">
-    <tr><td data-value="starlink">Starlink</td></tr>
-    <tr><td data-value="kuiper">Kuiper</td></tr>
-    <tr><td data-value="oneweb">OneWeb</td></tr>
+    <tr data-value="starlink"><td>Starlink</td></tr>
+    <tr data-value="kuiper"><td>Kuiper</td></tr>
+    <tr data-value="oneweb"><td>OneWeb</td></tr>
   </table>
   <div id="chart"></div>
   <div id="time-log"></div>
@@ -65,41 +60,42 @@
     };
 
     const EARTH_RADIUS_KM = 6371;
-    const TIME_STEP = 1000;
+    const TIME_STEP = 1 * 1000;
     const timeLogger = document.getElementById('time-log');
     const table = document.getElementById('constellation-table');
 
+    let fadeAlpha = 1;          // opacity factor for satellites
+    let fadeState = "idle";     // "idle" | "fade-out" | "fade-in"
+    let nextConstellation = ""; // store constellation during transition
+    let satData = [];
+    let time = new Date();
+
     const world = Globe()(document.getElementById('chart'))
       .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg')
-      .backgroundColor('black')
-      .pointOfView({ altitude: 3.5 })
-      .particlesData([])
+      .backgroundColor('#000')  
+      .showAtmosphere(true)
+      .atmosphereColor('rgba(70, 120, 180, 0.3)')
       .particleLat('lat')
       .particleLng('lng')
       .particleAltitude('alt')
-      .particlesColor(() => 'rgba(255,255,200,0.9)')
-      .particlesSize(1.6);
+      .particlesSize(4.5); // bigger
+      .particlesColor(() => `rgba(255, 255, 200, ${fadeAlpha})`);
 
-    setTimeout(() => table.classList.add('show'), 200);
-
-    let satData = [];
-    let time = new Date();
+    setTimeout(() => world.pointOfView({ altitude: 3.5 }));
 
     function fetchAndDisplayTLE(url) {
       fetch(url)
         .then(r => r.text())
         .then(rawData => {
-          const tleData = rawData.replace(/\r/g, '')
-            .split(/\n(?=[^12])/)
-            .filter(d => d)
-            .map(tle => tle.split('\n'));
+          const tleData = rawData.replace(/\r/g, '').split(/\n(?=[^12])/).filter(d => d).map(tle => tle.split('\n'));
           satData = tleData.map(([name, ...tle]) => ({
             satrec: satellite.twoline2satrec(...tle),
             name: name.trim().replace(/^0 /, '')
           })).filter(d => !!satellite.propagate(d.satrec, new Date())?.position);
 
-          // Build orbital rings once
-          buildOrbitalRings(satData);
+          // start fade-in
+          fadeState = "fade-in";
+          fadeAlpha = 0;
         });
     }
 
@@ -115,10 +111,32 @@
           d.lng = satellite.radiansToDegrees(gdPos.longitude);
           d.alt = gdPos.height / EARTH_RADIUS_KM;
         } else {
-          d.lat = NaN; d.lng = NaN; d.alt = NaN;
+          d.lat = NaN;
+          d.lng = NaN;
+          d.alt = NaN;
         }
       });
-      world.particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))]);
+
+      // handle fading
+      if (fadeState === "fade-out") {
+        fadeAlpha -= 0.03;
+        if (fadeAlpha <= 0) {
+          fadeAlpha = 0;
+          fadeState = "loading";
+          // once faded out, load new constellation
+          fetchAndDisplayTLE(TLE_URLS[nextConstellation]);
+        }
+      } else if (fadeState === "fade-in") {
+        fadeAlpha += 0.03;
+        if (fadeAlpha >= 1) {
+          fadeAlpha = 1;
+          fadeState = "idle";
+        }
+      }
+
+      world
+        .particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))])
+        .particlesColor(() => `rgba(255, 255, 200, ${fadeAlpha})`);
     }
 
     (function frameTicker() {
@@ -126,79 +144,49 @@
       updateSatPositions();
     })();
 
-    // Orbital rings builder (geometry-based)
-    function buildOrbitalRings(satellites) {
-      const PLANE_TOL_DEG = 0.5;
-      const planes = new Map();
+    // Click handling for table rows
+    table.querySelectorAll("tr").forEach(row => {
+      row.addEventListener("click", () => {
+        table.querySelectorAll("tr").forEach(r => r.classList.remove("active"));
+        row.classList.add("active");
 
-      satellites.forEach(sat => {
-        const inclDeg = satellite.radiansToDegrees(sat.satrec.inclo || 0);
-        const raanDeg = satellite.radiansToDegrees(sat.satrec.nodeo || 0);
-        const inclBin = Math.round(inclDeg / PLANE_TOL_DEG) * PLANE_TOL_DEG;
-        const raanBin = Math.round(raanDeg / PLANE_TOL_DEG) * PLANE_TOL_DEG;
-        const key = `${inclBin}_${raanBin}`;
-        if (!planes.has(key)) planes.set(key, { incl: inclDeg, raan: raanDeg });
-      });
-
-      const arcs = [];
-      const numSegs = 48;
-
-      planes.forEach(({ incl, raan }) => {
-        let prev = null;
-        for (let i = 0; i <= numSegs; i++) {
-          const theta = (2 * Math.PI * i) / numSegs;
-
-          // Circle in plane
-          let x = Math.cos(theta);
-          let y = Math.sin(theta);
-          let z = 0;
-
-          // Inclination (rotate around x-axis)
-          let y1 = y * Math.cos(incl * Math.PI/180) - z * Math.sin(incl * Math.PI/180);
-          let z1 = y * Math.sin(incl * Math.PI/180) + z * Math.cos(incl * Math.PI/180);
-          let x1 = x;
-
-          // RAAN (rotate around z-axis)
-          let x2 = x1 * Math.cos(raan * Math.PI/180) - y1 * Math.sin(raan * Math.PI/180);
-          let y2 = x1 * Math.sin(raan * Math.PI/180) + y1 * Math.cos(raan * Math.PI/180);
-          let z2 = z1;
-
-          // lat/lng
-          const lat = Math.asin(z2) * 180/Math.PI;
-          const lng = Math.atan2(y2, x2) * 180/Math.PI;
-
-          if (prev) {
-            arcs.push({
-              startLat: prev.lat, startLng: prev.lng,
-              endLat: lat, endLng: lng,
-              arcAltitude: 0.01,
-              color: 'rgba(100,180,255,0.5)',
-              strokeWidth: 0.6
-            });
-          }
-          prev = { lat, lng };
-        }
-      });
-
-      world
-        .arcsData(arcs)
-        .arcColor(d => d.color)
-        .arcStroke(d => d.strokeWidth)
-        .arcAltitude(d => d.arcAltitude);
-    }
-
-    // Table click listener
-    table.querySelectorAll('td').forEach(cell => {
-      cell.addEventListener('click', () => {
-        table.querySelectorAll('td').forEach(c => c.classList.remove('active'));
-        cell.classList.add('active');
-        fetchAndDisplayTLE(TLE_URLS[cell.dataset.value]);
+        const constellation = row.getAttribute("data-value");
+        nextConstellation = constellation;
+        fadeState = "fade-out"; // begin fade-out
       });
     });
 
-    // Fetch initial constellation
-    fetchAndDisplayTLE(TLE_URLS['starlink']);
-    table.querySelector('td[data-value="starlink"]').classList.add('active');
+    // Fetch initial default TLE (Starlink)
+    const defaultRow = table.querySelector('[data-value="starlink"]');
+    defaultRow.classList.add("active");
+    nextConstellation = "starlink";
+    fetchAndDisplayTLE(TLE_URLS["starlink"]);
+
+    // === Shader patch for glowing, bigger satellites ===
+    setTimeout(() => {
+      world.scene().traverse(obj => {
+        if (obj.type === "Points" && obj.material && obj.material.onBeforeCompile) {
+          obj.material.onBeforeCompile = shader => {
+            // Enlarge particles
+            shader.vertexShader = shader.vertexShader.replace(
+              'gl_PointSize = size;',
+              'gl_PointSize = size * 4.0;' // 4x bigger
+            );
+
+            // Add glow effect
+            shader.fragmentShader = shader.fragmentShader.replace(
+              'gl_FragColor = vec4( color, opacity );',
+              `
+              float d = distance(gl_PointCoord, vec2(0.5, 0.5));
+              float alpha = smoothstep(0.5, 0.0, d);
+              gl_FragColor = vec4(color, opacity * alpha);
+              `
+            );
+          };
+          obj.material.needsUpdate = true;
+        }
+      });
+    }, 1000);
   </script>
 </body>
 </html>
