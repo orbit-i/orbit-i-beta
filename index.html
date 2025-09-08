@@ -5,7 +5,7 @@
   <title>Satellite Constellations Overview</title>
   <style>
     body { margin: 0; background: black; }
-    #constellation-table {
+    #legend {
       position: absolute;
       top: 10px;
       left: 10px;
@@ -15,18 +15,28 @@
       border-collapse: collapse;
       background: rgba(30, 30, 30, 0.8);
       color: white;
-      cursor: pointer;
+      padding: 10px;
+      border-radius: 8px;
     }
-    #constellation-table td {
-      padding: 6px 12px;
-      border: 1px solid rgba(200, 200, 200, 0.2);
-      transition: background 0.2s;
+    #legend h3 {
+      margin: 0 0 8px 0;
+      font-size: 18px;
+      text-align: center;
     }
-    #constellation-table tr:hover td {
-      background: rgba(173, 216, 230, 0.3); /* light blue hover */
+    #legend table {
+      width: 100%;
+      border-collapse: collapse;
     }
-    #constellation-table tr.active td {
-      background: rgba(173, 216, 230, 0.5); /* highlighted light blue */
+    #legend td {
+      padding: 6px 8px;
+      vertical-align: middle;
+    }
+    .legend-color {
+      width: 16px;
+      height: 16px;
+      display: inline-block;
+      border-radius: 50%;
+      margin-right: 8px;
     }
     #time-log {
       position: absolute;
@@ -43,11 +53,23 @@
   <script src="https://cdn.jsdelivr.net/npm/globe.gl"></script>
 </head>
 <body>
-  <table id="constellation-table">
-    <tr data-value="starlink"><td>Starlink</td></tr>
-    <tr data-value="kuiper"><td>Kuiper</td></tr>
-    <tr data-value="oneweb"><td>OneWeb</td></tr>
-  </table>
+  <div id="legend">
+    <h3>Popular Constellation</h3>
+    <table>
+      <tr>
+        <td><input type="checkbox" id="chk-oneweb" data-value="oneweb" checked></td>
+        <td><span class="legend-color" style="background:#00ffff;"></span>OneWeb</td>
+      </tr>
+      <tr>
+        <td><input type="checkbox" id="chk-kuiper" data-value="kuiper"></td>
+        <td><span class="legend-color" style="background:#ff7f50;"></span>Kuiper</td>
+      </tr>
+      <tr>
+        <td><input type="checkbox" id="chk-starlink" data-value="starlink"></td>
+        <td><span class="legend-color" style="background:#adff2f;"></span>Starlink</td>
+      </tr>
+    </table>
+  </div>
   <div id="chart"></div>
   <div id="time-log"></div>
   <script type="module">
@@ -59,15 +81,17 @@
       oneweb: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=oneweb&FORMAT=tle',
     };
 
+    const CONSTELLATION_COLORS = {
+      starlink: '#adff2f', // green-yellow
+      kuiper: '#ff7f50',   // coral
+      oneweb: '#00ffff'    // cyan
+    };
+
     const EARTH_RADIUS_KM = 6371;
     const TIME_STEP = 1 * 1000;
     const timeLogger = document.getElementById('time-log');
-    const table = document.getElementById('constellation-table');
 
-    let fadeAlpha = 1;          // opacity factor for satellites
-    let fadeState = "idle";     // "idle" | "fade-out" | "fade-in"
-    let nextConstellation = ""; // store constellation during transition
-    let satData = [];
+    let satDataMap = {}; // { constellation: [sat objects] }
     let time = new Date();
 
     const world = Globe()(document.getElementById('chart'))
@@ -75,26 +99,29 @@
       .backgroundColor('#000')  
       .showAtmosphere(true)
       .atmosphereColor('rgba(70, 120, 180, 0.3)')
-      .particleLat('lat')
-      .particleLng('lng')
-      .particleAltitude('alt')
-      .particlesColor(() => `rgba(255, 255, 200, ${fadeAlpha})`);
+      .pointLat('lat')
+      .pointLng('lng')
+      .pointAltitude('alt')
+      .pointColor('color')
+      .pointsData([]);
 
     setTimeout(() => world.pointOfView({ altitude: 3.5 }));
 
-    function fetchAndDisplayTLE(url) {
-      fetch(url)
+    function fetchConstellation(constellation) {
+      return fetch(TLE_URLS[constellation])
         .then(r => r.text())
         .then(rawData => {
           const tleData = rawData.replace(/\r/g, '').split(/\n(?=[^12])/).filter(d => d).map(tle => tle.split('\n'));
-          satData = tleData.map(([name, ...tle]) => ({
-            satrec: satellite.twoline2satrec(...tle),
-            name: name.trim().replace(/^0 /, '')
-          })).filter(d => !!satellite.propagate(d.satrec, new Date())?.position);
-
-          // start fade-in
-          fadeState = "fade-in";
-          fadeAlpha = 0;
+          const sats = tleData.map(([name, ...tle]) => {
+            const satrec = satellite.twoline2satrec(...tle);
+            return {
+              satrec,
+              name: name.trim().replace(/^0 /, ''),
+              constellation,
+              color: CONSTELLATION_COLORS[constellation]
+            };
+          }).filter(d => !!satellite.propagate(d.satrec, new Date())?.position);
+          satDataMap[constellation] = sats;
         });
     }
 
@@ -102,7 +129,8 @@
       time = new Date(+time + TIME_STEP);
       timeLogger.innerText = time.toString();
       const gmst = satellite.gstime(time);
-      satData.forEach(d => {
+
+      Object.values(satDataMap).flat().forEach(d => {
         const eci = satellite.propagate(d.satrec, time);
         if (eci?.position) {
           const gdPos = satellite.eciToGeodetic(eci.position, gmst);
@@ -116,26 +144,14 @@
         }
       });
 
-      // handle fading
-      if (fadeState === "fade-out") {
-        fadeAlpha -= 0.03;
-        if (fadeAlpha <= 0) {
-          fadeAlpha = 0;
-          fadeState = "loading";
-          // once faded out, load new constellation
-          fetchAndDisplayTLE(TLE_URLS[nextConstellation]);
-        }
-      } else if (fadeState === "fade-in") {
-        fadeAlpha += 0.03;
-        if (fadeAlpha >= 1) {
-          fadeAlpha = 1;
-          fadeState = "idle";
-        }
-      }
+      // collect visible constellations based on checkboxes
+      const activeConstellations = Array.from(document.querySelectorAll('#legend input[type=checkbox]:checked'))
+        .map(chk => chk.getAttribute('data-value'));
 
-      world
-        .particlesData([satData.filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt))])
-        .particlesColor(() => `rgba(255, 255, 200, ${fadeAlpha})`);
+      const activeData = activeConstellations.flatMap(c => satDataMap[c] || [])
+        .filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt));
+
+      world.pointsData(activeData);
     }
 
     (function frameTicker() {
@@ -143,49 +159,18 @@
       updateSatPositions();
     })();
 
-    // Click handling for table rows
-    table.querySelectorAll("tr").forEach(row => {
-      row.addEventListener("click", () => {
-        table.querySelectorAll("tr").forEach(r => r.classList.remove("active"));
-        row.classList.add("active");
-
-        const constellation = row.getAttribute("data-value");
-        nextConstellation = constellation;
-        fadeState = "fade-out"; // begin fade-out
+    // Checkbox handling
+    document.querySelectorAll('#legend input[type=checkbox]').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const constellation = chk.getAttribute('data-value');
+        if (chk.checked && !satDataMap[constellation]) {
+          fetchConstellation(constellation);
+        }
       });
     });
 
-    // Fetch initial default TLE (Starlink)
-    const defaultRow = table.querySelector('[data-value="starlink"]');
-    defaultRow.classList.add("active");
-    nextConstellation = "starlink";
-    fetchAndDisplayTLE(TLE_URLS["starlink"]);
-
-    // === Shader patch for glowing, bigger satellites ===
-    setTimeout(() => {
-      world.scene().traverse(obj => {
-        if (obj.type === "Points" && obj.material && obj.material.onBeforeCompile) {
-          obj.material.onBeforeCompile = shader => {
-            // Enlarge particles
-            shader.vertexShader = shader.vertexShader.replace(
-              'gl_PointSize = size;',
-              'gl_PointSize = size * 4.0;' // 4x bigger
-            );
-
-            // Add glow effect
-            shader.fragmentShader = shader.fragmentShader.replace(
-              'gl_FragColor = vec4( color, opacity );',
-              `
-              float d = distance(gl_PointCoord, vec2(0.5, 0.5));
-              float alpha = smoothstep(0.5, 0.0, d);
-              gl_FragColor = vec4(color, opacity * alpha);
-              `
-            );
-          };
-          obj.material.needsUpdate = true;
-        }
-      });
-    }, 1000);
+    // Load default checked (OneWeb)
+    fetchConstellation('oneweb');
   </script>
 </body>
 </html>
