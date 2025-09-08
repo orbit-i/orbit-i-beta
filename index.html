@@ -12,7 +12,6 @@
       z-index: 10;
       font-size: 16px;
       font-family: sans-serif;
-      border-collapse: collapse;
       background: rgba(30, 30, 30, 0.8);
       color: white;
       padding: 10px;
@@ -24,7 +23,6 @@
       text-align: center;
     }
     #legend table {
-      width: 100%;
       border-collapse: collapse;
     }
     #legend td {
@@ -82,9 +80,9 @@
     };
 
     const CONSTELLATION_COLORS = {
-      starlink: '#adff2f', // green-yellow
-      kuiper: '#ff7f50',   // coral
-      oneweb: '#00ffff'    // cyan
+      starlink: 'rgba(173,255,47,1)', // green-yellow
+      kuiper: 'rgba(255,127,80,1)',   // coral
+      oneweb: 'rgba(0,255,255,1)'     // cyan
     };
 
     const EARTH_RADIUS_KM = 6371;
@@ -99,11 +97,10 @@
       .backgroundColor('#000')  
       .showAtmosphere(true)
       .atmosphereColor('rgba(70, 120, 180, 0.3)')
-      .pointLat('lat')
-      .pointLng('lng')
-      .pointAltitude('alt')
-      .pointColor('color')
-      .pointsData([]);
+      .particleLat('lat')
+      .particleLng('lng')
+      .particleAltitude('alt')
+      .particlesColor(d => d.color || 'rgba(255,255,200,1)');
 
     setTimeout(() => world.pointOfView({ altitude: 3.5 }));
 
@@ -144,14 +141,13 @@
         }
       });
 
-      // collect visible constellations based on checkboxes
       const activeConstellations = Array.from(document.querySelectorAll('#legend input[type=checkbox]:checked'))
         .map(chk => chk.getAttribute('data-value'));
 
       const activeData = activeConstellations.flatMap(c => satDataMap[c] || [])
         .filter(d => !isNaN(d.lat) && !isNaN(d.lng) && !isNaN(d.alt));
 
-      world.pointsData(activeData);
+      world.particlesData([activeData]); // still using particle layer
     }
 
     (function frameTicker() {
